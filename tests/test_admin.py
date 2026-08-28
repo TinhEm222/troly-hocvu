@@ -110,7 +110,7 @@ def test_admin_dashboard_returns_counts(admin_client):
     assert response.json()["total_documents"] == 0
 
 
-def test_admin_can_upload_list_delete_pdf_and_reject_other_extensions(admin_client):
+def test_admin_can_upload_list_delete_pdf_and_reject_other_extensions(admin_client, monkeypatch):
     client, raw_data_dir = admin_client
     token = login(client, "admin@example.com", "admin-password")
     headers = auth_headers(token)
@@ -125,6 +125,7 @@ def test_admin_can_upload_list_delete_pdf_and_reject_other_extensions(admin_clie
     uploaded = client.post(
         "/api/admin/documents/upload",
         headers=headers,
+        data={"auto_reindex": "false"},
         files={"file": ("guide.pdf", b"%PDF-1.7 test", "application/pdf")},
     )
     assert uploaded.status_code == 201
@@ -142,10 +143,42 @@ def test_admin_can_upload_list_delete_pdf_and_reject_other_extensions(admin_clie
     assert listed.status_code == 200
     assert [item["id"] for item in listed.json()] == [document["id"]]
 
+    reindex_calls = []
+
+    def fake_reindex_job():
+        reindex_calls.append("delete")
+        admin_module._reindex_state["running"] = False
+        admin_module._reindex_state["last_finished_at"] = datetime.utcnow().isoformat()
+
+    monkeypatch.setattr(admin_module, "_run_reindex_job", fake_reindex_job)
     deleted = client.delete(f"/api/admin/documents/{document['id']}", headers=headers)
     assert deleted.status_code == 200
+    assert reindex_calls == ["delete"]
+    assert "tự động re-index" in deleted.json()["message"]
     assert list(raw_data_dir.iterdir()) == []
     assert client.get("/api/admin/documents", headers=headers).json() == []
+
+
+def test_upload_automatically_schedules_reindex_by_default(admin_client, monkeypatch):
+    client, _ = admin_client
+    token = login(client, "admin@example.com", "admin-password")
+    reindex_calls = []
+
+    def fake_reindex_job():
+        reindex_calls.append("upload")
+        admin_module._reindex_state["running"] = False
+        admin_module._reindex_state["last_finished_at"] = datetime.utcnow().isoformat()
+
+    monkeypatch.setattr(admin_module, "_run_reindex_job", fake_reindex_job)
+    response = client.post(
+        "/api/admin/documents/upload",
+        headers=auth_headers(token),
+        files={"file": ("auto.pdf", b"%PDF-1.7 automatic", "application/pdf")},
+    )
+
+    assert response.status_code == 201
+    assert reindex_calls == ["upload"]
+    assert admin_module._reindex_state["last_started_at"] is not None
 
 
 def test_admin_rejects_duplicate_pdf_content(admin_client):
@@ -157,11 +190,13 @@ def test_admin_rejects_duplicate_pdf_content(admin_client):
     first = client.post(
         "/api/admin/documents/upload",
         headers=headers,
+        data={"auto_reindex": "false"},
         files={"file": ("first.pdf", pdf_bytes, "application/pdf")},
     )
     duplicate = client.post(
         "/api/admin/documents/upload",
         headers=headers,
+        data={"auto_reindex": "false"},
         files={"file": ("renamed.pdf", pdf_bytes, "application/pdf")},
     )
 
@@ -190,6 +225,7 @@ def test_document_update_keeps_old_version_active_until_reindex_succeeds(
     first = client.post(
         "/api/admin/documents/upload",
         headers=headers,
+        data={"auto_reindex": "false"},
         files={"file": ("quy-che.pdf", b"%PDF-1.7 version one", "application/pdf")},
     )
     assert first.status_code == 201
@@ -208,6 +244,7 @@ def test_document_update_keeps_old_version_active_until_reindex_succeeds(
         data={
             "upload_mode": "update",
             "replaces_document_id": str(first_document["id"]),
+            "auto_reindex": "false",
         },
         files={"file": ("quy-che-moi.pdf", b"%PDF-1.7 version two", "application/pdf")},
     )
@@ -231,6 +268,35 @@ def test_document_update_keeps_old_version_active_until_reindex_succeeds(
     assert after_reindex[first_document["id"]]["lifecycle_status"] == "superseded"
     assert after_reindex[second_document["id"]]["lifecycle_status"] == "active"
     assert after_reindex[second_document["id"]]["status"] == "indexed"
+
+
+def test_reindex_keeps_draft_and_reports_failure_when_rag_reinitialization_fails(
+    admin_client, monkeypatch
+):
+    client, _ = admin_client
+    token = login(client, "admin@example.com", "admin-password")
+    headers = auth_headers(token)
+
+    uploaded = client.post(
+        "/api/admin/documents/upload",
+        headers=headers,
+        data={"auto_reindex": "false"},
+        files={"file": ("failed.pdf", b"%PDF-1.7 failed initialization", "application/pdf")},
+    )
+    assert uploaded.status_code == 201
+
+    monkeypatch.setattr(
+        "ingestion.pipeline.run_ingestion_pipeline",
+        lambda **kwargs: {"chunk_count": 1, "indexed_document_ids": []},
+    )
+    monkeypatch.setattr("core.startup.reinitialize_rag_components", lambda: None)
+
+    admin_module._run_reindex_job()
+
+    document = client.get("/api/admin/documents", headers=headers).json()[0]
+    assert document["status"] == "failed"
+    assert document["lifecycle_status"] == "draft"
+    assert "khởi tạo lại bộ tìm kiếm" in admin_module._reindex_state["last_error"]
 
 
 def test_admin_reindex_reports_completion_state(admin_client, monkeypatch):

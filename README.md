@@ -77,6 +77,6 @@ npm run build
 2. Mở **Quản lý tài liệu**.
 3. Chọn **Tài liệu mới** hoặc **Cập nhật phiên bản**.
 4. Nếu cập nhật, chọn đúng tài liệu đang hiệu lực rồi tải một file PDF mới.
-5. Giao diện tự động chạy re-index. Có thể dùng nút **Re-index** để chạy lại khi cần.
+5. Backend tự động chạy re-index sau khi upload hoặc xóa thành công. Có thể dùng nút **Re-index** để chạy lại khi cần.
 
 Nếu re-index thất bại, phiên bản mới giữ trạng thái `draft/failed` và phiên bản cũ vẫn `active`.

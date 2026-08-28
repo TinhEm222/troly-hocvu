@@ -3,6 +3,7 @@ import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
@@ -38,6 +39,7 @@ ALLOWED_EXTENSIONS = {".pdf"}
 
 # Trang thai job re-index chay nen (in-memory, du cho 1 instance API)
 _REINDEX_TOTAL_STEPS = 4
+_reindex_lock = Lock()
 _reindex_state = {
     "running": False,
     "last_started_at": None,
@@ -63,6 +65,22 @@ def _set_reindex_progress(
             "progress_percent": round(current_step / _REINDEX_TOTAL_STEPS * 100),
         }
     )
+
+
+def _schedule_reindex(background_tasks: BackgroundTasks, *, triggered_by: str) -> bool:
+    """Start one background re-index job and update its shared status atomically."""
+    with _reindex_lock:
+        if _reindex_state["running"]:
+            return False
+
+        _reindex_state["running"] = True
+        _reindex_state["last_started_at"] = datetime.utcnow().isoformat()
+        _reindex_state["last_error"] = None
+        _set_reindex_progress("extracting", "Đang chuẩn bị re-index...", 1)
+        background_tasks.add_task(_run_reindex_job)
+
+    logger.info("Re-index scheduled automatically: %s", triggered_by)
+    return True
 
 
 class UserOut(BaseModel):
@@ -179,9 +197,11 @@ async def list_documents(current_admin: User = Depends(get_current_admin), db: S
 
 @router.post("/documents/upload", response_model=DocumentOut, status_code=status.HTTP_201_CREATED)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     upload_mode: str = Form("new"),
     replaces_document_id: Optional[int] = Form(None),
+    auto_reindex: bool = Form(True),
     current_admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
@@ -310,12 +330,20 @@ async def upload_document(
         document_code,
         version_number,
     )
+    if auto_reindex:
+        _schedule_reindex(
+            background_tasks,
+            triggered_by=f'upload "{original_filename}" by {current_admin.email}',
+        )
     return _document_to_out(document)
 
 
 @router.delete("/documents/{document_id}")
 async def delete_document(
-    document_id: int, current_admin: User = Depends(get_current_admin), db: Session = Depends(get_db)
+    document_id: int,
+    background_tasks: BackgroundTasks,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
 ):
     if _reindex_state["running"]:
         raise HTTPException(status_code=409, detail="Re-index đang chạy, chưa thể xóa tài liệu.")
@@ -349,7 +377,11 @@ async def delete_document(
     db.delete(document)
     db.commit()
     logger.info(f"Admin {current_admin.email} deleted document: {document.original_filename}")
-    return {"message": "Đã xóa tài liệu. Hãy chạy Re-index để cập nhật dữ liệu tìm kiếm."}
+    _schedule_reindex(
+        background_tasks,
+        triggered_by=f'delete "{document.original_filename}" by {current_admin.email}',
+    )
+    return {"message": "Đã xóa tài liệu. Hệ thống đang tự động re-index dữ liệu tìm kiếm."}
 
 
 def _run_reindex_job():
@@ -391,7 +423,9 @@ def _run_reindex_job():
             require_all_documents=True,
         )
         _set_reindex_progress("initializing", "Đang khởi tạo bộ tìm kiếm...", 3)
-        reinitialize_rag_components()
+        initialized_components = reinitialize_rag_components()
+        if document_sources and initialized_components is None:
+            raise RuntimeError("Không thể khởi tạo lại bộ tìm kiếm sau khi lập chỉ mục.")
 
         for document in active_documents:
             if document.id not in replaced_ids:
@@ -410,7 +444,6 @@ def _run_reindex_job():
 
         db.commit()
         _reindex_state["last_error"] = None
-        _reindex_state["running"] = False
         _set_reindex_progress("completed", "Đã re-index xong.", _REINDEX_TOTAL_STEPS)
         logger.info("Reindex job completed successfully.")
     except Exception as e:
@@ -429,23 +462,20 @@ def _run_reindex_job():
         _reindex_state["stage"] = "failed"
     finally:
         db.close()
-        _reindex_state["running"] = False
-        _reindex_state["last_finished_at"] = datetime.utcnow().isoformat()
+        with _reindex_lock:
+            _reindex_state["running"] = False
+            _reindex_state["last_finished_at"] = datetime.utcnow().isoformat()
 
 
 @router.post("/documents/reindex", status_code=status.HTTP_202_ACCEPTED)
 async def reindex_documents(
     background_tasks: BackgroundTasks, current_admin: User = Depends(get_current_admin)
 ):
-    if _reindex_state["running"]:
+    if not _schedule_reindex(
+        background_tasks,
+        triggered_by=f"manual request by {current_admin.email}",
+    ):
         raise HTTPException(status_code=409, detail="Re-index đang chạy, vui lòng chờ hoàn tất.")
-
-    _reindex_state["running"] = True
-    _reindex_state["last_started_at"] = datetime.utcnow().isoformat()
-    _reindex_state["last_error"] = None
-    _set_reindex_progress("extracting", "Đang chuẩn bị re-index...", 1)
-    background_tasks.add_task(_run_reindex_job)
-    logger.info(f"Admin {current_admin.email} triggered re-index.")
     return {"message": "Đã bắt đầu re-index dữ liệu. Quá trình này có thể mất vài phút."}
 
 

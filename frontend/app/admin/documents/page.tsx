@@ -10,7 +10,7 @@ import {
   shouldStopReindexPolling,
   uploadFilesSequentially,
 } from '@/lib/adminUi';
-import { Upload, Trash2, RefreshCw, FileText } from 'lucide-react';
+import { Upload, Trash2, FileText } from 'lucide-react';
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -163,6 +163,25 @@ function DocumentsContent() {
     }
   }, [loadDocuments, pollReindexStatus]);
 
+  const monitorAutomaticReindex = useCallback(async () => {
+    setIsReindexing(true);
+    setReindexStatus({
+      running: true,
+      stage: 'extracting',
+      message: 'Backend đang tự động re-index...',
+      current_step: 1,
+      total_steps: 4,
+      progress_percent: 25,
+      last_started_at: new Date().toISOString(),
+    });
+    try {
+      await pollReindexStatus();
+      await loadDocuments();
+    } finally {
+      setIsReindexing(false);
+    }
+  }, [loadDocuments, pollReindexStatus]);
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
@@ -186,6 +205,8 @@ function DocumentsContent() {
         return adminService.uploadDocument(file, {
           uploadMode,
           replacesDocumentId: uploadMode === 'update' ? replacesDocumentId ?? undefined : undefined,
+          // Defer earlier files so a multi-file upload starts only one backend re-index job.
+          autoReindex: index === files.length - 1,
         });
       });
 
@@ -201,7 +222,14 @@ function DocumentsContent() {
       }
       await loadDocuments();
       if (result.uploaded.length > 0) {
-        await triggerReindex();
+        const lastFile = files[files.length - 1];
+        const lastFileFailed = result.failed.some(({ file }) => file === lastFile);
+        if (lastFileFailed) {
+          // The request that should have scheduled re-index failed; start one for earlier successes.
+          await triggerReindex();
+        } else {
+          await monitorAutomaticReindex();
+        }
         if (uploadMode === 'update') setReplacesDocumentId(null);
       }
     } catch (err: any) {
@@ -220,13 +248,13 @@ function DocumentsContent() {
     try {
       await adminService.deleteDocument(id);
       await loadDocuments();
-      await triggerReindex();
+      setMessage('Đã xóa tài liệu. Backend đang tự động re-index.');
+      await monitorAutomaticReindex();
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Xóa tài liệu thất bại.');
     }
   };
 
-  const handleReindex = triggerReindex;
   const activeDocuments = documents.filter((document) => document.lifecycle_status === 'active');
 
   return (

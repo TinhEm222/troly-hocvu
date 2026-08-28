@@ -16,6 +16,8 @@ test('admin document actions expose re-index progress and confirm deletion', asy
   assert.match(source, /setIsReindexing\(status\.running\)/);
   assert.match(source, /uploadMode/);
   assert.match(source, /replacesDocumentId/);
+  assert.match(source, /autoReindex/);
+  assert.match(source, /monitorAutomaticReindex/);
   assert.match(source, /lifecycle_status/);
   assert.match(source, /version_number/);
 });

@@ -93,6 +93,7 @@ export interface DocumentRecord {
 export interface DocumentUploadOptions {
   uploadMode?: 'new' | 'update';
   replacesDocumentId?: number;
+  autoReindex?: boolean;
 }
 
 export interface AdminUserRecord {
@@ -306,6 +307,9 @@ export const adminService = {
     formData.append('upload_mode', options.uploadMode || 'new');
     if (options.replacesDocumentId !== undefined) {
       formData.append('replaces_document_id', String(options.replacesDocumentId));
+    }
+    if (options.autoReindex !== undefined) {
+      formData.append('auto_reindex', String(options.autoReindex));
     }
     const response = await apiClient.post<DocumentRecord>('/api/admin/documents/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

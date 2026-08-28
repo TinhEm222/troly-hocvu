@@ -1,0 +1,117 @@
+@import 'katex/dist/katex.min.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.login-input {
+  color: #111827 !important;
+  -webkit-text-fill-color: #111827 !important;
+  caret-color: #111827;
+  color-scheme: light;
+}
+
+.login-input::placeholder {
+  color: #9ca3af !important;
+  -webkit-text-fill-color: #9ca3af !important;
+  opacity: 1;
+}
+
+.markdown-content {
+  @apply leading-7;
+}
+
+.markdown-content > :first-child {
+  margin-top: 0;
+}
+
+.markdown-content > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content p,
+.markdown-content ul,
+.markdown-content ol,
+.markdown-content blockquote,
+.markdown-content pre,
+.markdown-content table {
+  margin: 0.65rem 0;
+}
+
+.markdown-content ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+}
+
+.markdown-content ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+}
+
+.markdown-content strong {
+  font-weight: 700;
+}
+
+.markdown-content code {
+  border-radius: 0.25rem;
+  background: rgb(243 244 246);
+  padding: 0.1rem 0.3rem;
+  font-size: 0.9em;
+}
+
+.markdown-content pre {
+  overflow-x: auto;
+  border-radius: 0.5rem;
+  background: rgb(17 24 39);
+  padding: 0.85rem 1rem;
+  color: rgb(243 244 246);
+}
+
+.markdown-content pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+.markdown-content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid rgb(229 231 235);
+  padding: 0.4rem 0.65rem;
+  text-align: left;
+}
+
+.markdown-content th {
+  background: rgb(249 250 251);
+  font-weight: 700;
+}
+
+.markdown-content blockquote {
+  border-left: 3px solid rgb(134 239 172);
+  padding-left: 0.85rem;
+  color: rgb(75 85 99);
+}

@@ -1,0 +1,78 @@
+# Cau hinh application
+app:
+  name: CTUT-Student-Academic-Assistant
+  version: 1.0.0
+  env: production
+
+# Cau hinh duong dan data
+data:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  schema_dir: data/schemas
+
+# Cau hinh chunk cho tai lieu PDF (don vi: token, xap xi bang so tu)
+# Chi ap dung khi 1 muc/dieu/khoan sau khi chunking theo cau truc van con qua dai.
+chunking:
+  chunk_size: 450     # so token toi da moi chunk (khuyen nghi 300-500)
+  chunk_overlap: 90   # so token overlap giua 2 chunk lien tiep (khuyen nghi 80-100)
+
+# Cau hinh embedding
+embedding:
+  model: intfloat/multilingual-e5-small
+  batch_size: 64
+  device: cpu
+
+# Cau hinh vector database luu tru chunk + embedding
+vector_database:
+  type: qdrant
+  host: localhost
+  port: 6333
+  url: http://localhost:6333   # optional, ưu tiên url nếu có
+  api_key: null               # nếu dùng Qdrant Cloud
+  collection_name: nmk_chatbot_collection
+  distance: cosine            # cosine | dot | euclid
+  vector_size: 384
+  timeout: 30                 # connection timeout in seconds
+
+# Cau hinh model LLM
+llm:
+  provider: gemini
+  model_name: gemini-3.5-flash-lite
+  gemini_api_key_env: GEMINI_API_KEY
+  temperature: 0.2
+  max_tokens: 512               # Giam tu 1024 -> 512 de sinh cau tra loi nhanh hon (it token hon = it thoi gian sinh hon)
+  timeout: 120                 # request timeout in seconds; allows cold model startup on CPU
+  fallback:
+    provider: ollama
+    model_name: qwen2.5:3b
+    base_url: http://localhost:11434
+    temperature: 0.2
+    max_tokens: 512
+    timeout: 120
+
+# Cau hinh RAG
+retrieval:
+  top_k: 6 # so luong chunk lay ve de dung lam context cho LLM (giam tu 10 -> 6 de giam khoi luong BM25 scoring + reranking)
+  score_threshold: 0.0 # sau khi tinh cosine similarity thi chi lay nhung chunk co diem so tren nguong nay
+  dense_weight: 0.6 # trong hybrid retriever, trong so cua dense retriever
+  bm25_weight: 0.4 # trong hybrid retriever, trong so cua bm25 retriever
+
+# Cau hinh reranking
+reranking:
+  model: cross-encoder/ms-marco-MiniLM-L-6-v2  # CrossEncoder model for reranking
+  device: cpu  # cpu or cuda
+  top_k: 5  # Final number of documents after reranking
+  # Nguong diem SAU rerank (thang diem logit tho cua CrossEncoder, thuong tu -11 den 11).
+  # Neu diem tai lieu lien quan nhat < nguong nay, khong dua context do vao LLM va
+  # tra loi tu choi mem; dong thoi an phan "sources" de tranh hien thi tai lieu lac de.
+  min_relevance_score: 3.0
+
+# Cau hinh OCR fallback cho trang PDF scan (anh, khong co lop text de trich xuat
+# bang pypdf). Chi kich hoat khi da cai Tesseract OCR (binary he thong) + goi ngon
+# ngu "vie". Neu thieu pytesseract/pymupdf hoac Tesseract chua cai, pipeline tu
+# dong bo qua OCR va log canh bao, khong lam crash qua trinh ingest.
+ocr:
+  enabled: false             # pipeline mac dinh trong bao cao dung lop text cua PDF bang pypdf
+  lang: vie+eng           # can co file vie.traineddata trong thu muc tessdata cua Tesseract
+  dpi: 300                # DPI render trang PDF thanh anh truoc khi OCR (300 la muc can bang chat luong/toc do)
+  min_text_length: 20     # neu pypdf trich xuat duoc it hon nguong nay (ky tu), coi la trang scan can OCR

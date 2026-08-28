@@ -287,14 +287,7 @@ function DocumentsContent() {
                 }
               />
             </label>
-            <button
-              onClick={handleReindex}
-              disabled={isReindexing}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 disabled:bg-gray-400 transition-colors text-sm font-medium"
-            >
-              <RefreshCw className={`w-4 h-4 ${isReindexing ? 'animate-spin' : ''}`} />
-              {isReindexing ? 'Đang re-index...' : 'Re-index'}
-            </button>
+            
           </div>
         </div>
 
